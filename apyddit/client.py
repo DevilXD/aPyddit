@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import io
 import os
 import aiohttp
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union, List, Dict, Tuple, cast
 
+from .utils import JsonType
 from .exceptions import HTTPException, UnsupportedTokenType
 
 
@@ -46,7 +49,7 @@ class HTTPClient:
     ):
         self.loop = asyncio.get_running_loop()
         self._session = aiohttp.ClientSession(loop=self.loop)
-        self._token: Optional[str] = None
+        self._token: str | None = None
         self._token_expires = datetime.utcnow()
         self._user_agent = user_agent
         self.client_id = client_id
@@ -156,7 +159,7 @@ class HTTPClient:
             return self.request("POST", "/api/uncollapse_message", data={"id": thing_id})
 
     def send_message(
-        self, recipient: str, subject: str, content: str, *, subreddit: Optional[str] = None
+        self, recipient: str, subject: str, content: str, *, subreddit: str | None = None
     ):
         data = {
             "api_type": "json",
@@ -270,7 +273,7 @@ class HTTPClient:
         css_class: str,
         text: str,
         *,
-        template_id: Optional[str] = None,
+        template_id: str | None = None,
     ):
         data = {
             "link": post_id,
@@ -288,7 +291,7 @@ class HTTPClient:
         css_class: str,
         text: str,
         *,
-        template_id: Optional[str] = None,
+        template_id: str | None = None,
     ):
         data = {
             "name": username,
@@ -307,10 +310,10 @@ class HTTPClient:
     def upload_subreddit_image(
         self,
         subreddit: str,
-        file: Union[bytes, io.BufferedIOBase, str, os.PathLike[str]],
+        file: bytes | io.BufferedIOBase | str | os.PathLike[str],
         upload_type: str = "img",
         *,
-        filename: Optional[str] = None,
+        filename: str | None = None,
     ):
         if isinstance(file, bytes):
             # passed in raw bytes, just treat them as the image
@@ -375,7 +378,7 @@ class HTTPClient:
         self,
         subreddit: str,
         stylesheet: str,
-        reason: Optional[str] = None,
+        reason: str | None = None,
     ):
         data = {
             "api_type": "json",
@@ -394,7 +397,7 @@ class HTTPClient:
         return self.request("GET", f"/r/{subreddit}/about/sticky", params={"num": num})
 
     def set_subreddit_subscription(self, subreddit: str, state: bool):
-        data: Dict[str, Any] = {
+        data: JsonType = {
             "sr_name": subreddit,
         }
         if state:
@@ -425,14 +428,14 @@ class HTTPClient:
         subreddit: str,
         title: str,
         *,
-        url: Optional[str] = None,
-        text: Optional[str] = None,
-        flair: Optional[Tuple[str, str]] = None,
+        url: str | None = None,
+        text: str | None = None,
+        flair: tuple[str, str] | None = None,
         resubmit: bool = False,
         nsfw: bool = False,
         spoiler: bool = False,
     ):
-        data: Dict[str, Any] = {
+        data: JsonType = {
             "api_type": "json",
             "sr": subreddit,
             "title": title,
@@ -459,7 +462,7 @@ class HTTPClient:
         return self.request("POST", "/api/submit", data=data)
 
     # TODO: Discover what 'rank' is for
-    def vote(self, thing_id: str, state: Optional[bool]):
+    def vote(self, thing_id: str, state: bool | None):
         data = {
             "id": thing_id,
             "state": {True: 1, False: -1, None: 0}[state],
@@ -527,7 +530,7 @@ class HTTPClient:
         return self.request("POST", "/api/unsave", data={"id": thing_id})
 
     def set_sticky(
-        self, thing_id: str, state: bool, num: Optional[int] = None, *, to_profile: bool = False
+        self, thing_id: str, state: bool, num: int | None = None, *, to_profile: bool = False
     ):
         data = {
             "api_type": "json",
@@ -547,7 +550,7 @@ class HTTPClient:
         }
         return self.request("POST", "/api/set_suggested_sort", data=data)
 
-    async def get_more_children(self, post_id: str, children: List[str]):
+    async def get_more_children(self, post_id: str, children: list[str]):
         if not children:
             return []
         data = {
@@ -573,27 +576,27 @@ class HTTPClient:
     def get_trending_subreddits(self):
         return self.request("GET", "/api/trending_subreddits")
 
-    def get_front_page(self, subreddit: Optional[str] = None, **kwargs):
+    def get_front_page(self, subreddit: str | None = None, **kwargs):
         if subreddit:
             return self.request("GET", f"/r/{subreddit}/hot", **kwargs)
         return self.request("GET", "/hot", **kwargs)
 
-    def get_new(self, subreddit: Optional[str] = None, **kwargs):
+    def get_new(self, subreddit: str | None = None, **kwargs):
         if subreddit:
             return self.request("GET", f"/r/{subreddit}/new", **kwargs)
         return self.request("GET", "/new", **kwargs)
 
-    def get_rising(self, subreddit: Optional[str] = None, **kwargs):
+    def get_rising(self, subreddit: str | None = None, **kwargs):
         if subreddit:
             return self.request("GET", f"/r/{subreddit}/rising", **kwargs)
         return self.request("GET", "/rising", **kwargs)
 
-    def get_controversial(self, subreddit: Optional[str] = None, **kwargs):
+    def get_controversial(self, subreddit: str | None = None, **kwargs):
         if subreddit:
             return self.request("GET", f"/r/{subreddit}/controversial", **kwargs)
         return self.request("GET", "/controversial", **kwargs)
 
-    def get_top(self, subreddit: Optional[str] = None, **kwargs):
+    def get_top(self, subreddit: str | None = None, **kwargs):
         if subreddit:
             return self.request("GET", f"/r/{subreddit}/top", **kwargs)
         return self.request("GET", "/top", **kwargs)
@@ -602,10 +605,8 @@ class HTTPClient:
         return self.request("GET", f"/r/{subreddit}/comments", **kwargs)
 
     # extracts the post and comments from the listings returned
-    async def get_post(
-        self, post_id: str, *, limit: int = 100
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        data = {
+    async def get_post(self, post_id: str, *, limit: int = 100) -> tuple[JsonType, list[JsonType]]:
+        data: JsonType = {
             "showmore": True,
             "showedits": True,
         }
@@ -621,7 +622,7 @@ class HTTPClient:
         )
         return response[1]["data"]["children"][0]
 
-    def get_posts(self, posts: List[str]):
+    def get_posts(self, posts: list[str]):
         names = ','.join(posts)
         return self.request("GET", f"/by_id/{names}")
 
@@ -638,37 +639,37 @@ class HTTPClient:
     # Moderation
     ##################################################
 
-    def edited_queue(self, subreddit: Optional[str] = None):
+    def edited_queue(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/edited")
         else:
             return self.request("POST", "/r/mod/about/edited")
 
-    def modlog(self, subreddit: Optional[str] = None):
+    def modlog(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/log")
         else:
             return self.request("POST", "/r/mod/about/log")
 
-    def mod_queue(self, subreddit: Optional[str] = None):
+    def mod_queue(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/modqueue")
         else:
             return self.request("POST", "/r/mod/about/modqueue")
 
-    def reports_queue(self, subreddit: Optional[str] = None):
+    def reports_queue(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/reports")
         else:
             return self.request("POST", "/r/mod/about/reports")
 
-    def spam_queue(self, subreddit: Optional[str] = None):
+    def spam_queue(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/spam")
         else:
             return self.request("POST", "/r/mod/about/spam")
 
-    def unmoderated_queue(self, subreddit: Optional[str] = None):
+    def unmoderated_queue(self, subreddit: str | None = None):
         if subreddit:
             return self.request("POST", f"/r/{subreddit}/about/unmoderated")
         else:
@@ -810,13 +811,13 @@ class HTTPClient:
         self,
         subreddit: str,
         username: str,
-        duration: Optional[int] = None,
+        duration: int | None = None,
         *,
-        reason: Optional[str] = None,
-        note: Optional[str] = None,
-        context: Optional[str] = None,
+        reason: str | None = None,
+        note: str | None = None,
+        context: str | None = None,
     ):
-        data: Dict[str, Any] = {
+        data: JsonType = {
             "api_type": "json",
             "name": username,
             "type": "banned",

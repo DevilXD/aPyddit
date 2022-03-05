@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TYPE_CHECKING, List
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Generic, TypeVar
 
+from ..base import ClientBase
 from ..exceptions import RedditException
 
 if TYPE_CHECKING:
@@ -10,7 +12,14 @@ if TYPE_CHECKING:
     from ..client import HTTPClient
 
 
-class BaseListing(List[Any], ABC):
+class _ListingItem:
+    fullname: str
+
+
+ListingItem = TypeVar("ListingItem", bound=_ListingItem)
+
+
+class BaseListing(ClientBase, Generic[ListingItem], ABC):
     """
     Base abstract class for all types of listings returned. Inherits from the `list` type.
     """
@@ -19,7 +28,7 @@ class BaseListing(List[Any], ABC):
     _max_limit = 100
 
     def __init__(self, client: HTTPClient, method: str, *args, **kwargs):
-        self._client = client
+        ClientBase.__init__(self, client)
         self._method = getattr(client, method)
         self.before = kwargs.pop("before", None)
         self.after = kwargs.pop("after", None)
@@ -35,8 +44,8 @@ class BaseListing(List[Any], ABC):
                 self.count = 0
         self._args = args
         self._kwargs = kwargs
-        self._initialized = False
-        self._iter = None
+        self._items: list[ListingItem] = []
+        self._subiter: Iterator[ListingItem]
 
     def __aiter__(self):
         return self
@@ -45,8 +54,7 @@ class BaseListing(List[Any], ABC):
         return self._initialize().__await__()
 
     async def _initialize(self):
-        if not self._initialized:
-            self._initialized = True
+        if not self._items:
             await self._fetch(0)
         return self
 
@@ -64,7 +72,7 @@ class BaseListing(List[Any], ABC):
         RedditException
             Raised when trying to operate on an uninitialized listing.
         """
-        if not self._initialized:
+        if not self._items:
             raise RedditException("A listing has to be initialized (awaited on) first!")
         return self._fetch(-1)
 
@@ -82,17 +90,17 @@ class BaseListing(List[Any], ABC):
         RedditException
             Raised when trying to operate on an uninitialized listing.
         """
-        if not self._initialized:
+        if not self._items:
             raise RedditException("A listing has to be initialized (awaited on) first!")
         return self._fetch(1)
 
     async def __anext__(self):
-        if not self._initialized:
+        if not self._items:
             await self._initialize()
-            self._iter = iter(self)
+            self._subiter = iter(self._items)
         while True:
             try:
-                return next(self._iter)
+                return next(self._subiter)
             except StopIteration:
                 # fetch
                 if self.reverse:
@@ -102,7 +110,7 @@ class BaseListing(List[Any], ABC):
                 # stop if we can't continue
                 if not can_continue:
                     raise StopAsyncIteration
-                self._iter = iter(self)
+                self._subiter = iter(self._items)
 
     async def _fetch(self, direction: int):
         """
@@ -125,7 +133,7 @@ class BaseListing(List[Any], ABC):
             `True` if the caller should continue in the direction specified, `False` otherwise.
         """
         # prepare new parameters
-        params = {}
+        params: JsonType = {}
         if self.count < 0:
             self.count = 0
         if self.limit is None:
@@ -156,7 +164,7 @@ class BaseListing(List[Any], ABC):
             # use the first item's fullname for the 'before' parameter
             elif self.limit is None and self:
                 index = -1 if self.reverse else 0
-                fullname = self[index].fullname
+                fullname = self._items[index].fullname
                 if fullname:
                     params["before"] = fullname
                 else:
@@ -173,7 +181,7 @@ class BaseListing(List[Any], ABC):
             # use the last item's fullname for the 'after' parameter
             elif self.limit is None and self:
                 index = 0 if self.reverse else -1
-                fullname = self[index].fullname
+                fullname = self._items[index].fullname
                 if fullname:
                     params["after"] = fullname
                 else:
@@ -196,7 +204,7 @@ class BaseListing(List[Any], ABC):
         Implemets returned data processing.
 
         Subclasses should overwrite this method to implement data extraction and all processing
-        necessary to fill up the listing appropriately (clear and extend), as well as update
+        necessary to fill up the `_items` appropriately, as well as update
         the 'count', 'before' and 'after' parameters.
 
         Parameters
