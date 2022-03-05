@@ -1,16 +1,18 @@
-from typing import TYPE_CHECKING, Union, NamedTuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, NamedTuple
 
 from .base import BaseListing
 
 if TYPE_CHECKING:
-    from ..http import HTTPClient
     from ..models import Subreddit  # noqa
+    from ..client import HTTPClient
     from ..partials import PartialSubreddit, PartialUser, Flair  # noqa
 
 
 class FullnameWrapper(NamedTuple):
-    user: "PartialUser"
-    flair: "Flair"
+    user: PartialUser
+    flair: Flair
 
     @property
     def fullname(self):
@@ -30,8 +32,8 @@ class FlairListing(BaseListing):
 
     def __init__(
         self,
-        client: "HTTPClient",
-        subreddit: Union["PartialSubreddit", "Subreddit"],
+        client: HTTPClient,
+        subreddit: PartialSubreddit | Subreddit,
         *args,
         **kwargs,
     ):

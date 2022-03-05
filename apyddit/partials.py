@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import io
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Union, List
+from typing import TYPE_CHECKING
 
 from .base import PartialNameThing, PartialIDThing
 from .listings import Listing, FlairListing, CommentListing
 
 if TYPE_CHECKING:
-    from .http import HTTPClient
+    from .utils import JsonType
+    from .client import HTTPClient
     from .models import (
         User,
         Post,
@@ -16,10 +19,10 @@ if TYPE_CHECKING:
 
 
 class PartialSubreddit(PartialNameThing):
-    def __init__(self, client: "HTTPClient", subreddit_name: str):
+    def __init__(self, client: HTTPClient, subreddit_name: str):
         super().__init__(client, "t5", subreddit_name)
 
-    async def _upgrade(self) -> "Subreddit":
+    async def _upgrade(self) -> Subreddit:
         """
         Upgrades this object to a full Subreddit object, bearing all subreddit information.
         """
@@ -109,7 +112,7 @@ class PartialSubreddit(PartialNameThing):
     def bans(self, **kwargs):
         return Listing(self._client, "get_subreddit_bans", self.display_name, **kwargs)
 
-    async def moderators(self) -> List["Moderator"]:
+    async def moderators(self) -> list[Moderator]:
         data = await self._client.get_subreddit_moderators(self.display_name)
         return [Moderator(self._client, self, mod_data) for mod_data in data["data"]["children"]]
 
@@ -130,10 +133,10 @@ class PartialSubreddit(PartialNameThing):
 
     async def upload_image(
         self,
-        file: Union[bytes, io.IOBase, str, os.PathLike],
-        upload_type: Optional[str] = None,
+        file: bytes | io.IOBase | str | os.PathLike[str],
+        upload_type: str | None = None,
         *,
-        filename: Optional[str] = None,
+        filename: str | None = None,
     ):
         """
         Uploads an image to the subreddit.
@@ -165,7 +168,7 @@ class PartialSubreddit(PartialNameThing):
 
 
 class PartialUser(PartialNameThing):
-    def __init__(self, client: "HTTPClient", username: str):
+    def __init__(self, client: HTTPClient, username: str):
         super().__init__(client, "t2", username)
 
     async def _upgrade(self) -> "User":
@@ -181,7 +184,7 @@ class PartialPost(PartialIDThing):
     def __init__(self, client, post_id: str):
         super().__init__(client, "t3", post_id)
 
-    async def _upgrade(self) -> "Post":
+    async def _upgrade(self) -> Post:
         from .models import Post
         data = await self._client.get_post(self.id)
         # this takes care of the initial comments as well
@@ -189,7 +192,7 @@ class PartialPost(PartialIDThing):
 
 
 class Flair:
-    def __init__(self, subreddit: Union[PartialSubreddit, "Subreddit"], css_class: str, text: str):
+    def __init__(self, subreddit: PartialSubreddit | Subreddit, css_class: str, text: str):
         self.subreddit = subreddit
         self.css_class = css_class
         self.text = text
@@ -197,7 +200,7 @@ class Flair:
 
 class Moderator(PartialUser):
     def __init__(
-        self, client: "HTTPClient", subreddit: Union[PartialSubreddit, "Subreddit"], data: dict
+        self, client: HTTPClient, subreddit: PartialSubreddit | Subreddit, data: JsonType
     ):
         PartialUser.__init__(self, client, data["name"])
         self.subreddit = subreddit

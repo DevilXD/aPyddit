@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union, List, Optional
+from typing import TYPE_CHECKING
 
 from .base import Thing
 from .asset import Asset
@@ -12,14 +12,15 @@ from .partials import (
 )
 
 if TYPE_CHECKING:
-    from .http import HTTPClient
+    from .utils import JsonType
     from .base import ClientBase
+    from .client import HTTPClient
 
 
 ThingID = str
 
 
-def get_thing(caller: "ClientBase", thing_data: dict):
+def get_thing(caller: ClientBase, thing_data: JsonType):
     kind = thing_data["kind"]
     if kind == "t1":
         return Comment(caller._client, thing_data)
@@ -39,7 +40,7 @@ def get_thing(caller: "ClientBase", thing_data: dict):
 
 
 class User(PartialUser, Thing, Created):
-    def __init__(self, client: "HTTPClient", user_data: dict):
+    def __init__(self, client: HTTPClient, user_data: JsonType):
         Thing.__init__(self, client, user_data)
         data = user_data["data"]
         Created.__init__(self, data)
@@ -49,9 +50,9 @@ class User(PartialUser, Thing, Created):
 class Post(PartialPost, Thing, Created, Votable):
     def __init__(
         self,
-        client: "HTTPClient",
-        post_data: dict,
-        comments_data: Optional[List[dict]] = None,
+        client: HTTPClient,
+        post_data: JsonType,
+        comments_data: list[JsonType] | None = None,
     ):
         Thing.__init__(self, client, post_data)
         data = post_data["data"]
@@ -84,8 +85,8 @@ class Post(PartialPost, Thing, Created, Votable):
 class Comment(Thing, Created, Votable):
     def __init__(
         self,
-        client: "HTTPClient",
-        comment_data: dict,
+        client: HTTPClient,
+        comment_data: JsonType,
     ):
         Thing.__init__(self, client, comment_data)
         data = comment_data["data"]
@@ -93,7 +94,7 @@ class Comment(Thing, Created, Votable):
         Votable.__init__(self, data)
         self.data = data
         # Post and Parent
-        self._parent = None  # overwritten in the classmethods
+        self._parent: Post | Comment | None = None  # overwritten in the classmethods
         self._post = None  # overwritten in the classmethods
         self._parent_id = data["parent_id"]
         self._post_id = data["link_id"]
@@ -126,7 +127,7 @@ class Comment(Thing, Created, Votable):
         # TODO:
         # self.author = ...
 
-    async def parent(self) -> Union[Post, "Comment"]:
+    async def parent(self) -> Post | Comment:
         """
         Retrieves the parent of this comment.
 
@@ -153,14 +154,14 @@ class Comment(Thing, Created, Votable):
         return self._post
 
     @classmethod
-    def from_post(cls, post: Post, comment_data: dict):
+    def from_post(cls, post: Post, comment_data: JsonType):
         inst = cls(post._client, comment_data)
         inst._post = post
         inst._parent = post
         return inst
 
     @classmethod
-    def from_comment(cls, comment: "Comment", comment_data: dict):
+    def from_comment(cls, comment: Comment, comment_data: JsonType):
         inst = cls(comment._client, comment_data)
         inst._post = comment._post
         inst._parent = comment
@@ -169,14 +170,14 @@ class Comment(Thing, Created, Votable):
     @classmethod
     def from_listing(
         cls,
-        sub: Union[PartialSubreddit, "Subreddit"],
-        comment_data: dict,
+        sub: PartialSubreddit | Subreddit,
+        comment_data: JsonType,
     ):
         return cls(sub._client, comment_data)
 
 
 class Message(Thing, Created):
-    def __init__(self, client: "HTTPClient", msg_data: dict):
+    def __init__(self, client: HTTPClient, msg_data: JsonType):
         Thing.__init__(self, client, msg_data)
         data = msg_data["data"]
         Created.__init__(self, data)
@@ -184,7 +185,7 @@ class Message(Thing, Created):
 
 
 class Subreddit(PartialSubreddit, Thing, Created):
-    def __init__(self, client: "HTTPClient", sub_data: dict):
+    def __init__(self, client: HTTPClient, sub_data: JsonType):
         Thing.__init__(self, client, sub_data)
         data = sub_data["data"]
         self.data = data
@@ -204,8 +205,8 @@ class Subreddit(PartialSubreddit, Thing, Created):
 class More(Thing):
     def __init__(
         self,
-        parent: Union[Post, Comment],
-        more_data: dict,
+        parent: Post | Comment,
+        more_data: JsonType,
     ):
         Thing.__init__(self, parent._client, more_data)
         data = more_data["data"]
@@ -220,7 +221,7 @@ class More(Thing):
     def __await__(self):
         return self._fetch().__await__()
 
-    async def _fetch(self) -> List[Comment]:
+    async def _fetch(self) -> list[Comment]:
         if self.children:
             more = await self._client.get_more_children(self.post.id, self.children)
         elif self.id == '_':

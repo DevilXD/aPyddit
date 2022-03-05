@@ -1,10 +1,13 @@
-from typing import TYPE_CHECKING, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from .base import BaseListing
 
 if TYPE_CHECKING:
-    from ..models import Subreddit  # noqa
-    from ..partials import PartialSubreddit  # noqa
+    from ..utils import JsonType
+    from ..models import Subreddit
+    from ..partials import PartialSubreddit
 
 
 # TODO: Update the class docstring
@@ -14,7 +17,7 @@ class CommentListing(BaseListing):
     """
     def __init__(
         self,
-        subreddit: Union["PartialSubreddit", "Subreddit"],
+        subreddit: PartialSubreddit | Subreddit,
         *args,
         **kwargs,
     ):
@@ -22,7 +25,7 @@ class CommentListing(BaseListing):
         self._sub = subreddit
         self._args += (subreddit.display_name,)
 
-    async def _update_data(self, direction: int, data: Union[list, dict]) -> bool:
+    async def _update_data(self, direction: int, data: JsonType) -> bool:
         data = data["data"]
         # update the 'count' parameter
         dist = data.get("dist") or 0

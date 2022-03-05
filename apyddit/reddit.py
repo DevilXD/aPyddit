@@ -1,6 +1,6 @@
-from typing import Union
+from __future__ import annotations
 
-from .http import HTTPClient
+from .client import HTTPClient
 from .partials import (
     # Thing,
     # Comment,
@@ -39,7 +39,7 @@ class Reddit:
     def close(self):
         return self._client.close()
 
-    def subreddit(self, name: str) -> Union[PartialSubreddit, Subreddit]:
+    def subreddit(self, name: str) -> PartialSubreddit | Subreddit:
         """
         Returns a model representing a Subreddit.
 
@@ -57,7 +57,7 @@ class Reddit:
         """
         return PartialSubreddit(self._client, name)
 
-    def user(self, username: str) -> Union[PartialUser, User]:
+    def user(self, username: str) -> PartialUser | User:
         """
         Return a model representing a Reddit User.
 
@@ -75,5 +75,5 @@ class Reddit:
         """
         return PartialUser(self._client, username)
 
-    def post(self, post_id: str) -> Union[PartialPost, Post]:
+    def post(self, post_id: str) -> PartialPost | Post:
         return PartialPost(self._client, post_id)

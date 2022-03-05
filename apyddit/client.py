@@ -18,7 +18,7 @@ class RateLimitLock(asyncio.Event):
     unlock = asyncio.Event.set
 
     def unlock_after(self, timeout: int):
-        async def unlocker(timeout):
+        async def unlocker():
             await asyncio.sleep(timeout)
             self.unlock()
         if not timeout:
@@ -26,7 +26,7 @@ class RateLimitLock(asyncio.Event):
             # specify a sane amount
             # timeout = 60
             raise RuntimeError
-        self._loop.create_task(unlocker(timeout))  # type: ignore
+        asyncio.create_task(unlocker())
 
     def is_locked(self):
         return not self.is_set()
@@ -79,7 +79,7 @@ class HTTPClient:
             self._token_expires = now + timedelta(seconds=data["expires_in"])
         return self._token
 
-    async def request(self, method: str, url: str, **kwargs) -> dict:
+    async def request(self, method: str, url: str, **kwargs) -> Any:
         while True:  # repeat until either an error or we get some data back
             await self._ratelimit.wait()
             token = await self._get_token()
@@ -101,13 +101,15 @@ class HTTPClient:
                     # we've hit the rate limit
                     self._ratelimit.lock()
                     reset_after = response.headers.get('x-ratelimit-reset')
-                    self._ratelimit.unlock_after(reset_after)
+                    if reset_after is not None and reset_after.isdecimal():
+                        self._ratelimit.unlock_after(int(reset_after))
                     continue
                 if response.status == 429:
                     # we've hit the rate limit somehow
                     self._ratelimit.lock()
                     reset_after = response.headers.get('x-ratelimit-reset')
-                    self._ratelimit.unlock_after(reset_after)
+                    if reset_after is not None and reset_after.isdecimal():
+                        self._ratelimit.unlock_after(int(reset_after))
                     continue
                 if response.status != 200:
                     raise HTTPException(response)
@@ -128,7 +130,7 @@ class HTTPClient:
     ##################################################
 
     def get_user(self, username: str):
-        return self.request("GET", "user/{username}/about".format(username=username))
+        return self.request("GET", f"user/{username}/about")
 
     """
     /api/v1/me
@@ -153,9 +155,18 @@ class HTTPClient:
         else:
             return self.request("POST", "/api/uncollapse_message", data={"id": thing_id})
 
-    # TODO: implement this
-    def send_message(self):
-        return self.request("POST", "/api/compose")
+    def send_message(
+        self, recipient: str, subject: str, content: str, *, subreddit: Optional[str] = None
+    ):
+        data = {
+            "api_type": "json",
+            "to": recipient,
+            "subject": subject,
+            "text": content,
+        }
+        if subreddit is not None:
+            data["from_sr"] = subreddit
+        return self.request("POST", "/api/compose", data=data)
 
     def delete_message(self, thing_id: str):
         return self.request("POST", "/api/del_msg", data={"id": thing_id})
@@ -220,49 +231,37 @@ class HTTPClient:
     ##################################################
 
     def get_subreddit(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about")
 
     def get_subreddit_settings(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about/edit".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about/edit")
 
     def get_subreddit_traffic(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about/traffic".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about/traffic")
 
     def get_subreddit_moderators(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about/moderators".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about/moderators")
 
     def get_subreddit_rules(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about/rules".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about/rules")
 
     def get_subreddit_mutes(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET", "/r/{subreddit}/about/muted".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET", f"/r/{subreddit}/about/muted", **kwargs)
 
     def get_subreddit_bans(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET", "/r/{subreddit}/about/banned".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET", f"/r/{subreddit}/about/banned", **kwargs)
 
     def get_subreddit_wiki_bans(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET", "/r/{subreddit}/about/wikibanned".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET", f"/r/{subreddit}/about/wikibanned", **kwargs)
 
     def get_subreddit_contributors(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET",  "/r/{subreddit}/about/contributors".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET",  f"/r/{subreddit}/about/contributors", **kwargs)
 
     def get_subreddit_wiki_contributors(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET", "/r/{subreddit}/about/wikicontributors".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET", f"/r/{subreddit}/about/wikicontributors", **kwargs)
 
     def get_subreddit_flair_list(self, subreddit: str, **kwargs):
-        return self.request(
-            "GET", "/r/{subreddit}/api/flairlist".format(subreddit=subreddit), **kwargs
-        )
+        return self.request("GET", f"/r/{subreddit}/api/flairlist", **kwargs)
 
     def set_post_flair(
         self,
@@ -278,13 +277,9 @@ class HTTPClient:
             "css_class": css_class,
             "text": text,
         }
-        if template_id:
+        if template_id is not None:
             data["flair_template_id"] = template_id
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/selectflair".format(subreddit=subreddit),
-            data=data,
-        )
+        return self.request("POST", f"/r/{subreddit}/api/selectflair", data=data)
 
     def set_user_flair(
         self,
@@ -300,28 +295,20 @@ class HTTPClient:
             "css_class": css_class,
             "text": text,
         }
-        if template_id:
+        if template_id is not None:
             data["flair_template_id"] = template_id
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/selectflair".format(subreddit=subreddit),
-            data=data,
-        )
+        return self.request("POST", f"/r/{subreddit}/api/selectflair", data=data)
 
     # TODO: This is users only. Figure out how to add posts to it as well.
     # Update: Just set css class and text to empty string
     def delete_flair(self, subreddit: str, username: str):
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/deleteflair".format(subreddit=subreddit),
-            data={"name": username},
-        )
+        return self.request("POST", f"/r/{subreddit}/api/deleteflair", data={"name": username})
 
     def upload_subreddit_image(
         self,
         subreddit: str,
-        file: Union[bytes, io.BufferedIOBase, str, os.PathLike],
-        upload_type: Optional[str] = None,
+        file: Union[bytes, io.BufferedIOBase, str, os.PathLike[str]],
+        upload_type: str = "img",
         *,
         filename: Optional[str] = None,
     ):
@@ -332,14 +319,14 @@ class HTTPClient:
             # the file is already open, so just read the contents
             image = file.read()
             # parse the name from the file pointer, if needed
-            if not filename:
+            if filename is None:
                 filepath = getattr(file, "name", None)
-                if filepath:
+                if filepath is not None:
                     filename = Path(filepath).stem
         elif isinstance(file, (str, os.PathLike)):
             # passed in a path, get the filename and file contents
             filepath = Path(file)
-            if not filename:
+            if filename is None:
                 filename = filepath.stem
             with filepath.open('rb') as open_file:
                 image = open_file.read()
@@ -353,53 +340,36 @@ class HTTPClient:
         else:
             raise TypeError("Unsupported file type")
 
-        if not upload_type:
-            upload_type = "img"
         data = {
             "file": image,
             "img_type": img_type,
             "upload_type": upload_type,
         }
-        if filename:
+        if filename is not None:
             data["name"] = filename
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/upload_sr_img".format(subreddit=subreddit),
-            data=data,
-        )
+        return self.request("POST", f"/r/{subreddit}/api/upload_sr_img", data=data)
 
     # TODO: Merge these four into one
     # add '"api_type": "json",'
     def delete_subreddit_banner(self, subreddit: str):
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/delete_sr_banner".format(subreddit=subreddit),
-        )
+        return self.request("POST", f"/r/{subreddit}/api/delete_sr_banner")
 
     def delete_subreddit_header(self, subreddit: str):
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/delete_sr_header".format(subreddit=subreddit),
-        )
+        return self.request("POST", f"/r/{subreddit}/api/delete_sr_header")
 
     def delete_subreddit_icon(self, subreddit: str):
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/delete_sr_icon".format(subreddit=subreddit),
-        )
+        return self.request("POST", f"/r/{subreddit}/api/delete_sr_icon")
 
     def delete_subreddit_img(self, subreddit: str, img_name: str):
         return self.request(
-            "POST",
-            "/r/{subreddit}/api/delete_sr_img".format(subreddit=subreddit),
-            data={"img_name": img_name},
+            "POST", f"/r/{subreddit}/api/delete_sr_img", data={"img_name": img_name}
         )
 
     def get_subreddit_submission_text(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/api/submit_text".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/api/submit_text")
 
     def get_subreddit_stylesheet(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/stylesheet".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/stylesheet")
 
     def set_subreddit_stylesheet(
         self,
@@ -414,20 +384,14 @@ class HTTPClient:
         }
         if reason:
             data["reason"] = reason
-        return self.request(
-            "POST",
-            "/r/{subreddit}/api/subreddit_stylesheet".format(subreddit=subreddit),
-            data=data,
-        )
+        return self.request("POST", f"/r/{subreddit}/api/subreddit_stylesheet", data=data)
 
     # Currently returns an empty response for some reason
     def get_subreddit_sidebar(self, subreddit: str):
-        return self.request("GET", "/r/{subreddit}/about/sidebar".format(subreddit=subreddit))
+        return self.request("GET", f"/r/{subreddit}/about/sidebar")
 
     def get_subreddit_sticky(self, subreddit: str, num: int):
-        return self.request(
-            "GET", "/r/{subreddit}/about/sticky".format(subreddit=subreddit), params={"num": num}
-        )
+        return self.request("GET", f"/r/{subreddit}/about/sticky", params={"num": num})
 
     def set_subreddit_subscription(self, subreddit: str, state: bool):
         data: Dict[str, Any] = {
@@ -436,10 +400,9 @@ class HTTPClient:
         if state:
             data["action"] = "sub"
             data["skip_initial_defaults"] = True
-            return self.request("POST", "/api/subscribe", data=data)
         else:
             data["action"] = "unsub"
-            return self.request("POST", "/api/subscribe", data=data)
+        return self.request("POST", "/api/subscribe", data=data)
 
     # TODO: Implement these
     """
@@ -464,7 +427,7 @@ class HTTPClient:
         *,
         url: Optional[str] = None,
         text: Optional[str] = None,
-        flair: Tuple[str, str] = None,
+        flair: Optional[Tuple[str, str]] = None,
         resubmit: bool = False,
         nsfw: bool = False,
         spoiler: bool = False,
@@ -612,68 +575,58 @@ class HTTPClient:
 
     def get_front_page(self, subreddit: Optional[str] = None, **kwargs):
         if subreddit:
-            return self.request(
-                "GET", "/r/{subreddit}/hot".format(subreddit=subreddit), **kwargs
-            )
+            return self.request("GET", f"/r/{subreddit}/hot", **kwargs)
         return self.request("GET", "/hot", **kwargs)
 
     def get_new(self, subreddit: Optional[str] = None, **kwargs):
         if subreddit:
-            return self.request(
-                "GET", "/r/{subreddit}/new".format(subreddit=subreddit), **kwargs
-            )
+            return self.request("GET", f"/r/{subreddit}/new", **kwargs)
         return self.request("GET", "/new", **kwargs)
 
     def get_rising(self, subreddit: Optional[str] = None, **kwargs):
         if subreddit:
-            return self.request(
-                "GET", "/r/{subreddit}/rising".format(subreddit=subreddit), **kwargs
-            )
+            return self.request("GET", f"/r/{subreddit}/rising", **kwargs)
         return self.request("GET", "/rising", **kwargs)
 
     def get_controversial(self, subreddit: Optional[str] = None, **kwargs):
         if subreddit:
-            return self.request(
-                "GET", "/r/{subreddit}/controversial".format(subreddit=subreddit), **kwargs
-            )
+            return self.request("GET", f"/r/{subreddit}/controversial", **kwargs)
         return self.request("GET", "/controversial", **kwargs)
 
     def get_top(self, subreddit: Optional[str] = None, **kwargs):
         if subreddit:
-            return self.request(
-                "GET", "/r/{subreddit}/top".format(subreddit=subreddit), **kwargs
-            )
+            return self.request("GET", f"/r/{subreddit}/top", **kwargs)
         return self.request("GET", "/top", **kwargs)
 
     def get_subreddit_comments(self, subreddit: str, **kwargs):
-        return self.request("GET", "/r/{subreddit}/comments".format(subreddit=subreddit), **kwargs)
+        return self.request("GET", f"/r/{subreddit}/comments", **kwargs)
 
     # extracts the post and comments from the listings returned
-    async def get_post(self, post_id: str, *, limit: int = 100) -> Tuple[dict, List[dict]]:
+    async def get_post(
+        self, post_id: str, *, limit: int = 100
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         data = {
             "showmore": True,
             "showedits": True,
         }
         response = await self.request(
-            "GET",
-            "/comments/{article}".format(article=post_id),
-            params={"limit": limit},
-            data=data,
+            "GET", f"/comments/{post_id}", params={"limit": limit}, data=data,
         )
         return (response[0]["data"]["children"][0], response[1]["data"]["children"])
 
     # extracts comments from the listings returned
     async def get_comment(self, post_id: str, comment_id: str):
         response = await self.request(
-            "GET", "/comments/{article}".format(article=post_id), params={"comment": comment_id}
+            "GET", f"/comments/{post_id}", params={"comment": comment_id}
         )
         return response[1]["data"]["children"][0]
 
     def get_posts(self, posts: List[str]):
-        return self.request("GET", "/by_id/{names}".format(names=','.join(posts)))
+        names = ','.join(posts)
+        return self.request("GET", f"/by_id/{names}")
 
     def get_duplicates(self, post_id: str):
-        return self.request("GET", "/duplicates/{article}".format(article=post_id))
+        return self.request("GET", f"/duplicates/{post_id}")
 
     def get_random_subreddit(self):
         return self.request("GET", "/r/random")
@@ -687,54 +640,43 @@ class HTTPClient:
 
     def edited_queue(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request("POST", "/r/{subreddit}/about/edited".format(subreddit=subreddit))
+            return self.request("POST", f"/r/{subreddit}/about/edited")
         else:
             return self.request("POST", "/r/mod/about/edited")
 
     def modlog(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request("POST", "/r/{subreddit}/about/log".format(subreddit=subreddit))
+            return self.request("POST", f"/r/{subreddit}/about/log")
         else:
             return self.request("POST", "/r/mod/about/log")
 
     def mod_queue(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request(
-                "POST",
-                "/r/{subreddit}/about/modqueue".format(subreddit=subreddit),
-            )
+            return self.request("POST", f"/r/{subreddit}/about/modqueue")
         else:
             return self.request("POST", "/r/mod/about/modqueue")
 
     def reports_queue(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request(
-                "POST",
-                "/r/{subreddit}/about/reports".format(subreddit=subreddit),
-            )
+            return self.request("POST", f"/r/{subreddit}/about/reports")
         else:
             return self.request("POST", "/r/mod/about/reports")
 
     def spam_queue(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request("POST", "/r/{subreddit}/about/spam".format(subreddit=subreddit))
+            return self.request("POST", f"/r/{subreddit}/about/spam")
         else:
             return self.request("POST", "/r/mod/about/spam")
 
     def unmoderated_queue(self, subreddit: Optional[str] = None):
         if subreddit:
-            return self.request(
-                "POST",
-                "/r/{subreddit}/about/unmoderated".format(subreddit=subreddit),
-            )
+            return self.request("POST", f"/r/{subreddit}/about/unmoderated")
         else:
             return self.request("POST", "/r/mod/about/unmoderated")
 
     def accept_moderator_invite(self, subreddit: str):
         return self.request(
-            "POST",
-            "/r/{subreddit}/api/accept_moderator_invite".format(subreddit=subreddit),
-            data={"api_type": "json"},
+            "POST", f"/r/{subreddit}/api/accept_moderator_invite", data={"api_type": "json"}
         )
 
     def remove(self, thing_id: str):

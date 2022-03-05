@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Union
+from typing import Any, TYPE_CHECKING, Union
 
 from ..exceptions import RedditException
 
 if TYPE_CHECKING:
-    from ..http import HTTPClient
+    from ..client import HTTPClient
 
 
-class BaseListing(list, ABC):
+class BaseListing(list[Any], ABC):
     """
     Base abstract class for all types of listings returned. Inherits from the `list` type.
     """
@@ -15,7 +17,7 @@ class BaseListing(list, ABC):
     # subclasses can overwrite this if needed
     _max_limit = 100
 
-    def __init__(self, client: "HTTPClient", method: str, *args, **kwargs):
+    def __init__(self, client: HTTPClient, method: str, *args, **kwargs):
         self._client = client
         self._method = getattr(client, method)
         self.before = kwargs.pop("before", None)
