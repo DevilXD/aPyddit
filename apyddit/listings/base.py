@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TYPE_CHECKING, Union
+from typing import Any, TYPE_CHECKING, List
 
 from ..exceptions import RedditException
 
 if TYPE_CHECKING:
+    from ..utils import JsonType
     from ..client import HTTPClient
 
 
-class BaseListing(list[Any], ABC):
+class BaseListing(List[Any], ABC):
     """
     Base abstract class for all types of listings returned. Inherits from the `list` type.
     """
@@ -190,7 +191,7 @@ class BaseListing(list[Any], ABC):
         return await self._update_data(direction, data)
 
     @abstractmethod
-    async def _update_data(self, direction: int, data: Union[list, dict]) -> bool:
+    async def _update_data(self, direction: int, data: JsonType) -> bool:
         """
         Implemets returned data processing.
 
